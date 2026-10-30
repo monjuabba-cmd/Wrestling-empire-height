@@ -1,0 +1,57 @@
+name: Dump game code 2
+
+# Same idea as before, but everything is written to log.txt so we can see
+# exactly what worked or failed. The job itself never fails.
+on:
+  workflow_dispatch:
+
+jobs:
+  dump:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            6.0.x
+            8.0.x
+
+      - name: Run dump tools
+        shell: bash
+        run: |
+          mkdir -p in out tool
+          exec > >(tee -a out/log.txt) 2>&1
+          set +e
+
+          echo "== get files from base release =="
+          gh release download base --repo "$GITHUB_REPOSITORY" --pattern '*.apk' --output original.apk
+          unzip -j -o original.apk lib/arm64-v8a/libil2cpp.so \
+            assets/bin/Data/Managed/Metadata/global-metadata.dat -d in
+          ls -l in
+
+          echo "== Il2CppDumper =="
+          tag=$(gh release list --repo Perfare/Il2CppDumper --limit 1 --json tagName --jq '.[0].tagName')
+          echo "latest tag: $tag"
+          gh release view "$tag" --repo Perfare/Il2CppDumper --json assets --jq '.assets[].name'
+          gh release download "$tag" --repo Perfare/Il2CppDumper --dir tool
+          ls -l tool
+          z=$(ls tool/*net8*.zip tool/*net6*.zip 2>/dev/null | head -1)
+          echo "using: $z"
+          if [ -n "$z" ]; then
+            mkdir tool/x && unzip -q -o "$z" -d tool/x
+            sed -i 's/"RequireAnyKey": *true/"RequireAnyKey": false/' tool/x/config.json
+            dotnet tool/x/Il2CppDumper.dll in/libil2cpp.so in/global-metadata.dat out < /dev/null
+          else
+            echo "no suitable Il2CppDumper zip found"
+          fi
+          ls -l out
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dump2
+          path: |
+            out/dump.cs
+            out/log.txt
+          if-no-files-found: warn
