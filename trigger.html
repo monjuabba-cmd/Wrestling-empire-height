@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Infinite Lives mod</title>
+<style>
+  :root { --bg:#fff; --fg:#111; --muted:#666; --line:#ccc; --accent:#2d6cdf; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#16181d; --fg:#eee; --muted:#9aa; --line:#444; }
+  }
+  body { font:16px system-ui,sans-serif; background:var(--bg); color:var(--fg);
+         max-width:30rem; margin:0 auto; padding:1.5rem 1rem; }
+  label { display:block; margin:1rem 0 .3rem; }
+  input, button { width:100%; box-sizing:border-box; font-size:1rem; padding:.8rem;
+                  border-radius:.5rem; border:1px solid var(--line);
+                  background:transparent; color:inherit; }
+  button { background:var(--accent); color:#fff; border:0; margin-top:1.2rem; }
+  button:disabled { opacity:.5; }
+  #msg { margin-top:1rem; color:var(--muted); min-height:1.5rem; }
+</style>
+</head>
+<body>
+<h1>Infinite Lives mod</h1>
+<label for="rel">Release name</label>
+<input id="rel" autocomplete="off" placeholder="No limits v1">
+<label for="tok">GitHub token (not saved)</label>
+<input id="tok" type="password" autocomplete="off" placeholder="github_pat_...">
+<button id="go">Start mod</button>
+<p id="msg"></p>
+<script>
+// EDIT THESE THREE LINES
+const REPO = "YOUR_USER/YOUR_REPO";
+const BRANCH = "main";
+const WORKFLOW = "mod.yml";
+
+const $ = (id) => document.getElementById(id);
+$("go").onclick = async () => {
+  const name = $("rel").value.trim(), token = $("tok").value.trim();
+  if (!name || !token) { $("msg").textContent = "Fill in both boxes."; return; }
+  const tag = "v" + Date.now();
+  $("go").disabled = true; $("msg").textContent = "Sending...";
+  try {
+    const r = await fetch(
+      `https://api.github.com/repos/${REPO}/actions/workflows/${WORKFLOW}/dispatches`,
+      { method: "POST",
+        headers: { Authorization: "Bearer " + token,
+                   Accept: "application/vnd.github+json" },
+        body: JSON.stringify({ ref: BRANCH,
+                               inputs: { release_name: name, tag_name: tag } }) });
+    $("msg").textContent = r.status === 204
+      ? "Started. Check the Actions tab; the APK appears under Releases."
+      : "GitHub said " + r.status + ": " + (await r.text());
+  } catch (e) { $("msg").textContent = "Error: " + e.message; }
+  $("go").disabled = false;
+};
+</script>
+</body>
+</html>

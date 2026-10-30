@@ -1,0 +1,49 @@
+name: Mod Infinite Lives
+
+# Run it from the GitHub app/website: Actions > Mod Infinite Lives > Run workflow.
+# That screen is your button + two text boxes.
+on:
+  workflow_dispatch:
+    inputs:
+      release_name:
+        description: Release name
+        required: true
+      tag_name:
+        description: Tag name (e.g. v1)
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  mod:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      RELEASE_NAME: ${{ inputs.release_name }}
+      TAG_NAME: ${{ inputs.tag_name }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # A 400 MB APK is too big for git (100 MB limit), so upload it once
+      # as an asset of a release tagged "base" in this (private) repo.
+      - name: Download original APK
+        run: gh release download base --pattern '*.apk' --output original.apk
+
+      - name: Apply patches and repack
+        run: python3 tools/patch.py original.apk patched.apk patches.json
+
+      - name: Align and sign
+        run: |
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          mkdir -p out
+          "$BT/zipalign" -f -p 4 patched.apk aligned.apk
+          keytool -genkeypair -keystore mod.jks -storepass modpass -keypass modpass \
+            -alias mod -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=mod"
+          "$BT/apksigner" sign --ks mod.jks --ks-pass pass:modpass \
+            --out out/infinite-lives-mod.apk aligned.apk
+
+      - name: Publish release
+        run: |
+          gh release create "$TAG_NAME" out/infinite-lives-mod.apk \
+            --title "$RELEASE_NAME" --notes "Patched build"
