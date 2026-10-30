@@ -1,0 +1,52 @@
+name: Dump game code 3
+
+# Il2CppDumper refused this game (metadata version 39). This tries Cpp2IL,
+# a newer tool. Everything goes to log.txt; the job never fails.
+on:
+  workflow_dispatch:
+
+jobs:
+  dump:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Run Cpp2IL
+        shell: bash
+        run: |
+          mkdir -p out tool
+          exec > >(tee -a out/log.txt) 2>&1
+          set +e
+
+          gh release download base --repo "$GITHUB_REPOSITORY" --pattern '*.apk' --output original.apk
+
+          tag=$(gh release list --repo SamboyCoding/Cpp2IL --limit 1 --json tagName --jq '.[0].tagName')
+          echo "== Cpp2IL latest tag: $tag =="
+          gh release view "$tag" --repo SamboyCoding/Cpp2IL --json assets --jq '.assets[].name'
+          gh release download "$tag" --repo SamboyCoding/Cpp2IL --dir tool --pattern '*Linux*'
+          ls -l tool
+
+          f=$(ls tool/* | head -1)
+          case "$f" in *.zip) unzip -q -o "$f" -d tool/x; f=$(find tool/x -type f -iname 'Cpp2IL*' ! -name '*.dll' ! -name '*.pdb' ! -name '*.json' | head -1);; esac
+          chmod +x "$f"
+          echo "using: $f"
+
+          echo "== diffable-cs =="
+          "$f" --game-path original.apk --output-as diffable-cs --output-to out/cs < /dev/null
+          echo "== dummydll =="
+          "$f" --game-path original.apk --output-as dummydll --output-to out/dll < /dev/null
+
+          echo "== what was produced =="
+          find out -maxdepth 3 | head -60
+          mkdir -p out/relevant
+          grep -rlE 'muscleMass|MassMuscle|AHeight|BHeight|AMuscle|BMuscle' out/cs 2>/dev/null | head -20 \
+            | while read -r p; do cp "$p" out/relevant/; echo "relevant: $p"; done
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dump3
+          path: |
+            out/log.txt
+            out/relevant/*
+          if-no-files-found: warn
