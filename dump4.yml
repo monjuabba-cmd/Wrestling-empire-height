@@ -1,0 +1,60 @@
+name: Dump game code 4
+
+# Cpp2IL works on this game. Now we ask it for the actual method code
+# (ISIL) so we can find where the height and muscle limits are checked.
+on:
+  workflow_dispatch:
+
+jobs:
+  dump:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Run Cpp2IL (isil)
+        shell: bash
+        run: |
+          mkdir -p out tool sample
+          exec > >(tee -a out/log.txt) 2>&1
+          set +e
+
+          gh release download base --repo "$GITHUB_REPOSITORY" --pattern '*.apk' --output original.apk
+          tag=$(gh release list --repo SamboyCoding/Cpp2IL --limit 1 --json tagName --jq '.[0].tagName')
+          gh release download "$tag" --repo SamboyCoding/Cpp2IL --dir tool --pattern '*Linux'
+          f=$(ls tool/*Linux | head -1); chmod +x "$f"
+
+          echo "== isil =="
+          "$f" --game-path original.apk --output-as isil --output-to out/isil < /dev/null
+
+          echo "== produced =="
+          find out/isil -maxdepth 3 | head -40
+          du -sh out/isil
+
+          # small sample: the two classes plus other files that mention muscleMass
+          find out/isil -type f \( -name 'Character*' -o -name 'Costume*' \) -exec cp {} sample/ \;
+          grep -rl 'muscleMass' out/isil 2>/dev/null | head -15 | while read -r p; do
+            cp "$p" "sample/$(basename "$p")"; echo "mentions muscleMass: $p"
+          done
+          ls -l sample
+
+          # everything from the game's own code, compressed
+          d=$(find out/isil -type d -name 'Assembly-CSharp*' | head -1)
+          echo "game code folder: $d"
+          [ -n "$d" ] && tar -czf out/game-isil.tar.gz -C "$d" .
+          ls -l out
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dump4-small
+          path: |
+            out/log.txt
+            sample/*
+          if-no-files-found: warn
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dump4-all
+          path: out/game-isil.tar.gz
+          if-no-files-found: warn
